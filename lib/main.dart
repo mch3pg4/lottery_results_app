@@ -1,6 +1,14 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
 
-void main() {
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+
+
+import 'widget_data.dart';
+
+Future<void> main() async {
+  await dotenv.load();
   runApp(const MyApp());
 }
 
@@ -34,6 +42,9 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   int _selectedLottery = 0;
   int _selectedTab = 0;
+  bool _isLoadingCompanies = false;
+  String? _companiesError;
+  List<String> _companies = const [];
 
   final List<_LotteryOption> _lotteryOptions = const [
     _LotteryOption(
@@ -56,11 +67,104 @@ class _MyHomePageState extends State<MyHomePage> {
     ),
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    _syncWidget();
+    fetch4DCompanies();
+  }
+
   void _selectLottery(int index) {
     setState(() {
       _selectedLottery = index;
     });
+    _syncWidget();
   }
+
+  Future<void> _syncWidget() async {
+    final selected = _lotteryOptions[_selectedLottery];
+    final combinedNumbers = '${selected.numbers.join(' ')} | Bonus ${selected.bonus}';
+    await WidgetDataService.saveAndUpdate(
+      WidgetResult(
+        name: selected.name,
+        description: selected.subtitle,
+        result: combinedNumbers,
+      ),
+    );
+  }
+
+  Future<void> fetch4DCompanies() async {
+    setState(() {
+      _isLoadingCompanies = true;
+      _companiesError = null;
+    });
+
+    final url = Uri.parse('https://4d-results.p.rapidapi.com/get_4d_companies');
+    final headers = {
+      'x-rapidapi-key': dotenv.env['RAPIDAPI_KEY'] ?? '',
+      'x-rapidapi-host': '4d-results.p.rapidapi.com',
+      'Content-Type': 'application/json',
+    };
+
+    if ((headers['x-rapidapi-key'] ?? '').isEmpty) {
+      setState(() {
+        _isLoadingCompanies = false;
+        _companiesError =
+            'Missing RAPIDAPI_KEY. Run with --dart-define=RAPIDAPI_KEY=your_key';
+      });
+      return;
+    }
+
+    try {
+      final response = await http.get(url, headers: headers);
+
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
+        final companies = _extractCompanies(decoded);
+
+        setState(() {
+          _companies = companies;
+          _isLoadingCompanies = false;
+        });
+      } else {
+        setState(() {
+          _isLoadingCompanies = false;
+          _companiesError =
+              'Request failed (${response.statusCode}): ${response.reasonPhrase ?? 'Unknown error'}';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _isLoadingCompanies = false;
+        _companiesError = 'Error fetching companies: $e';
+      });
+    }
+  }
+
+  List<String> _extractCompanies(dynamic decoded) {
+    if (decoded is List) {
+      return decoded.map((item) => item.toString()).toList();
+    }
+
+    if (decoded is Map<String, dynamic>) {
+      for (final key in ['companies', 'data', 'results', 'result']) {
+        final value = decoded[key];
+        if (value is List) {
+          return value.map((item) => item.toString()).toList();
+        }
+      }
+
+      if (decoded.isNotEmpty) {
+        return decoded.entries
+            .map((entry) => '${entry.key}: ${entry.value}')
+            .toList();
+      }
+    }
+
+    return [decoded.toString()];
+  }
+
+
 
   String _formatDate(DateTime date) {
     const weekdays = <String>[
@@ -121,6 +225,8 @@ class _MyHomePageState extends State<MyHomePage> {
                   _buildResultsCard(selectedLottery),
                   const SizedBox(height: 16),
                   _buildInfoCards(),
+                  const SizedBox(height: 16),
+                  _buildCompaniesCard(),
                 ],
               ),
             ),
@@ -167,7 +273,7 @@ class _MyHomePageState extends State<MyHomePage> {
   String _tabTitle(int index) {
     switch (index) {
       case 1:
-        return 'History';
+        return 'Hello';
       case 2:
         return 'More';
       default:
@@ -498,6 +604,63 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildCompaniesCard() {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '4D Companies',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
+              IconButton(
+                onPressed: _isLoadingCompanies ? null : fetch4DCompanies,
+                icon: const Icon(Icons.refresh_rounded),
+                tooltip: 'Refresh',
+              ),
+            ],
+          ),
+          if (_isLoadingCompanies)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_companiesError != null)
+            Text(
+              _companiesError!,
+              style: const TextStyle(color: Colors.redAccent),
+            )
+          else if (_companies.isEmpty)
+            const Text('No company data returned from API yet.')
+          else
+            ..._companies.map(
+              (company) => Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text('- $company'),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

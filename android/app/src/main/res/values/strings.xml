@@ -1,12 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="appwidget_text">Lottery Results</string>
     <string name="add_widget">Add widget</string>
     <string name="app_widget_description">Quick view of today\'s lottery results and next draw timing</string>
     <string name="lottery_name">Lotto Max</string>
-    <string name="lottery_draw">Evening Draw</string>
-    <string name="lottery_numbers">04 11 18 23 37 44</string>
-    <string name="lottery_bonus">Bonus: 09</string>
+    <string name="lottery_description">Evening draw</string>
+    <string name="lottery_result">04 11 18 23 37 44 | Bonus 09</string>
     <string name="next_draw">Next Draw: 8:00 PM</string>
     <string name="tap_to_view">Tap to view all results</string>
 </resources>

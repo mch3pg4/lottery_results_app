@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@color/background_light"
@@ -26,10 +27,10 @@
             android:textStyle="bold" />
 
         <TextView
-            android:id="@+id/widget_lottery_draw"
+            android:id="@+id/widget_lottery_description"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/lottery_draw"
+            android:text="@string/lottery_description"
             android:textColor="@color/white"
             android:textSize="@dimen/widget_text_size_subtitle"
             android:layout_marginTop="2dp" />
@@ -54,24 +55,15 @@
             android:layout_marginBottom="@dimen/widget_inner_padding" />
 
         <TextView
-            android:id="@+id/widget_lottery_numbers"
+            android:id="@+id/widget_lottery_result"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/lottery_numbers"
+            android:text="@string/lottery_result"
             android:textColor="@color/text_dark"
             android:textSize="@dimen/widget_text_size_numbers"
             android:textStyle="bold"
             android:letterSpacing="0.05" />
 
-        <TextView
-            android:id="@+id/widget_lottery_bonus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/lottery_bonus"
-            android:textColor="@color/primary_purple"
-            android:textSize="@dimen/widget_text_size_subtitle"
-            android:textStyle="bold"
-            android:layout_marginTop="@dimen/widget_inner_padding" />
 
     </LinearLayout>
 
