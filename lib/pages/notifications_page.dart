@@ -29,16 +29,16 @@ class _NotificationsPageState extends State<NotificationsPage> {
             const SizedBox(height: 8),
             Text(
               'Notification Settings',
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
               'Manage how you receive updates about lottery draws and results',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Colors.black54,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: Colors.black54),
             ),
             const SizedBox(height: 24),
             _buildNotificationTile(
@@ -98,10 +98,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
               ),
               child: Row(
                 children: [
-                  Icon(
-                    Icons.info_outline_rounded,
-                    color: Colors.blue,
-                  ),
+                  Icon(Icons.info_outline_rounded, color: Colors.blue),
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Text(
@@ -144,7 +141,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(icon, color: Theme.of(context).colorScheme.primary),
@@ -156,7 +155,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
               children: [
                 Text(
                   title,
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -170,11 +172,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
           Switch(
             value: value,
             onChanged: onChanged,
-            activeColor: Theme.of(context).colorScheme.primary,
+            activeThumbColor: Theme.of(context).colorScheme.primary,
           ),
         ],
       ),
     );
   }
 }
-

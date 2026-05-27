@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
-import 'package:webview_windows/webview_windows.dart' as wvwin;
+import 'package:html/dom.dart' as dom;
+import 'package:html/parser.dart' as html_parser;
+import 'package:http/http.dart' as http;
 
 import 'widget_data.dart';
 import 'pages/history_page.dart';
@@ -48,6 +49,7 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   int _selectedLottery = 0;
   int _selectedTab = 0;
+  int _selectedRegionTab = 0; // 0=West, 1=East, 2=Singapore
 
   DateTime _selectedDate = DateTime.now();
   bool _isLoadingResults = false;
@@ -56,83 +58,28 @@ class _MyHomePageState extends State<MyHomePage> {
 
   final List<LotteryType> _lotteryTypes = LotteryType.values;
 
-  wvwin.WebviewController? _headlessWebViewController;
-  StreamSubscription<wvwin.LoadingState>? _webViewLoadingSub;
-  StreamSubscription<dynamic>? _webMessageSub;
-  bool _isWebViewReady = false;
-  bool _hasWebViewError = false;
+  int _fetchRequestId = 0;
+
+  String? _moonDrawInfo;
+  List<String> _moonSpecialList = const [];
+  List<String> _moonConsolationList = const [];
+
+  String? _damacaiDrawNo;
+  String? _damacaiDrawVenue;
+  List<String> _damacaiStarterList = const [];
+  List<String> _damacaiConsolationList = const [];
+  Map<String, String> _damacaiPrizeMoney = const {};
 
   @override
   void initState() {
     super.initState();
     _syncWidget();
-    _initHeadlessWebView();
   }
 
   @override
   void dispose() {
-    _webViewLoadingSub?.cancel();
-    _webMessageSub?.cancel();
-    _headlessWebViewController?.dispose();
     super.dispose();
   }
-
-  bool get _isWindowsDesktop => !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
-
-  Future<void> _initHeadlessWebView() async {
-    if (!_isWindowsDesktop) {
-      setState(() {
-        _hasWebViewError = true;
-        _resultsError = 'This build uses an embedded Windows WebView for fetching results. Please run on Windows desktop.';
-      });
-      return;
-    }
-
-    try {
-      final version = await wvwin.WebviewController.getWebViewVersion();
-      if (version == null) {
-        setState(() {
-          _hasWebViewError = true;
-          _resultsError = 'WebView2 Runtime is not installed on this PC. Install Microsoft Edge WebView2 Runtime and restart the app.';
-        });
-        return;
-      }
-
-      final controller = wvwin.WebviewController();
-      await controller.initialize();
-      await controller.setBackgroundColor(Colors.transparent);
-      await controller.setPopupWindowPolicy(wvwin.WebviewPopupWindowPolicy.deny);
-
-      _webViewLoadingSub = controller.loadingState.listen((state) {
-        if (!mounted) return;
-        if (state == wvwin.LoadingState.navigationCompleted) {
-          setState(() {
-            _isWebViewReady = true;
-            _hasWebViewError = false;
-          });
-          if (_isLoadingResults) {
-            _executeFetchInWebView();
-          }
-        }
-      });
-
-      _webMessageSub = controller.webMessage.listen((message) {
-        if (!mounted) return;
-        _handleWebMessage(message);
-      });
-
-      _headlessWebViewController = controller;
-      await controller.loadUrl('https://4dyes3.com/en/past-result');
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _hasWebViewError = true;
-        _resultsError = 'WebView initialization failed: $e';
-        _isLoadingResults = false;
-      });
-    }
-  }
-
 
   void _selectLottery(int index) {
     setState(() {
@@ -141,151 +88,381 @@ class _MyHomePageState extends State<MyHomePage> {
     _fetchLotteryResults();
   }
 
+  void _selectRegionTab(int index) {
+    setState(() {
+      _selectedRegionTab = index;
+    });
+    _fetchLotteryResults();
+  }
+
   Future<void> _fetchLotteryResults() async {
+    final requestId = ++_fetchRequestId;
+    final selectedLottery = _lotteryTypes[_selectedLottery];
+
     setState(() {
       _isLoadingResults = true;
       _resultsError = null;
+      _lotteryResult = null;
+
+      _moonDrawInfo = null;
+      _moonSpecialList = const [];
+      _moonConsolationList = const [];
+
+      if (selectedLottery == LotteryType.damacai) {
+        _damacaiDrawNo = null;
+        _damacaiDrawVenue = null;
+        _damacaiStarterList = const [];
+        _damacaiConsolationList = const [];
+        _damacaiPrizeMoney = const {};
+      }
     });
 
-    if (_hasWebViewError) {
-      setState(() {
-        _isLoadingResults = false;
-        _resultsError = _resultsError ?? 'Background engine failed to load. Please restart app.';
-      });
+    if (selectedLottery == LotteryType.damacai) {
+      final ok = await _fetchDamacaiResults(
+        requestId: requestId,
+        requestedDate: _selectedDate,
+      );
+
+      if (!ok) {
+        if (!mounted || requestId != _fetchRequestId) return;
+        setState(() {
+          _isLoadingResults = true;
+          _resultsError = null;
+        });
+        await _fetch4dMoonResults(
+          requestId: requestId,
+          requestedDate: _selectedDate,
+          regionTabIndex: 0,
+          lotteryType: LotteryType.damacai,
+        );
+      }
       return;
     }
 
-    if (!_isWebViewReady || _headlessWebViewController == null) {
-      // Will be triggered automatically when page finishes loading
-      return;
-    }
-
-    _executeFetchInWebView();
+    await _fetch4dMoonResults(
+      requestId: requestId,
+      requestedDate: _selectedDate,
+      regionTabIndex: _selectedRegionTab,
+      lotteryType: selectedLottery,
+    );
   }
 
-  void _executeFetchInWebView() {
-    final dateString = _selectedDate.toString().split(' ')[0];
-    final js = '''
-      (function() {
-        fetch('https://4dyes3.com/getLiveResult.php?date=$dateString', { credentials: 'include' })
-        .then(response => {
-           if (!response.ok) throw new Error('HTTP ' + response.status);
-           return response.text();
-        })
-        .then(data => window.chrome.webview.postMessage(JSON.stringify({ kind: 'result', payload: data })))
-        .catch(e => window.chrome.webview.postMessage(JSON.stringify({ kind: 'error', payload: e.toString() })));
-      })();
-    ''';
-    _headlessWebViewController?.executeScript(js);
+  String _formatYyyyMmDdDash(DateTime date) {
+    final year = date.year.toString().padLeft(4, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
   }
 
-  void _handleWebMessage(dynamic message) {
-    final lotteryType = _lotteryTypes[_selectedLottery];
-
-    if (message is Map && message['kind'] == 'error') {
-      setState(() {
-        _resultsError = 'API Error: ${message['payload']}';
-        _isLoadingResults = false;
-      });
-      return;
+  String _moonSectionIdForRegion(int regionTabIndex) {
+    switch (regionTabIndex) {
+      case 1:
+        return 'sectionB';
+      case 2:
+        return 'sectionC';
+      case 0:
+      default:
+        return 'sectionA';
     }
+  }
 
-    if (message is! Map || message['kind'] != 'result') {
-      setState(() {
-        _resultsError = 'Unexpected WebView message received.';
-        _isLoadingResults = false;
-      });
-      return;
+  bool _moonTitleMatches(LotteryType type, String title) {
+    final t = title.toLowerCase();
+    switch (type) {
+      case LotteryType.magnum:
+        return t.contains('magnum 4d');
+      case LotteryType.toto:
+        return t.contains('sportstoto 4d');
+      case LotteryType.cashsweep:
+        return t.contains('cashsweep');
+      case LotteryType.sabah88:
+        return t.contains('sabah 4d');
+      case LotteryType.sadakan:
+        return t.contains('sandakan 4d');
+      case LotteryType.singapore:
+        return t.contains('singapore 4d');
+      case LotteryType.damacai:
+        return t.contains('damacai');
     }
+  }
+
+  Future<void> _fetch4dMoonResults({
+    required int requestId,
+    required DateTime requestedDate,
+    required int regionTabIndex,
+    required LotteryType lotteryType,
+  }) async {
+    final dateDash = _formatYyyyMmDdDash(requestedDate);
+    final url = Uri.parse('https://www.4dmoon.com/past-results/$dateDash');
+    final sectionId = _moonSectionIdForRegion(regionTabIndex);
 
     try {
-      final decoded = jsonDecode(message['payload'] as String);
-      final result = _extractLotteryResultFromNewApi(decoded, lotteryType);
+      final response = await http
+          .get(
+            url,
+            headers: const {
+              'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+              'Accept':
+                  'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9',
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+      if (!mounted || requestId != _fetchRequestId) return;
+
+      if (response.statusCode != 200) {
+        setState(() {
+          _resultsError = '4dmoon error: HTTP ${response.statusCode}';
+          _isLoadingResults = false;
+        });
+        return;
+      }
+
+      final body = utf8.decode(response.bodyBytes, allowMalformed: true);
+      final doc = html_parser.parse(body);
+      final section = doc.getElementById(sectionId);
+      if (section == null) {
+        setState(() {
+          _resultsError = '4dmoon page format changed (missing $sectionId).';
+          _isLoadingResults = false;
+        });
+        return;
+      }
+
+      final blocks = section.querySelectorAll('div.mbx');
+      if (blocks.isEmpty) {
+        setState(() {
+          _resultsError = 'No results found on 4dmoon for this tab.';
+          _isLoadingResults = false;
+        });
+        return;
+      }
+
+      dom.Element? matched;
+      String matchedTitle = '';
+      for (final block in blocks) {
+        final headerCell =
+            block.querySelector('span.rdd')?.parent ??
+            block.querySelector('table.rtb td[style*="width:75%"]');
+        final title = (headerCell?.text ?? '')
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+        if (title.isEmpty) continue;
+        if (_moonTitleMatches(lotteryType, title)) {
+          matched = block;
+          matchedTitle = title;
+          break;
+        }
+      }
+
+      if (matched == null) {
+        setState(() {
+          _resultsError =
+              'No ${lotteryType.displayName} results found on this tab.';
+          _isLoadingResults = false;
+        });
+        return;
+      }
+
+      final matchedEl = matched;
+
+      final top3 = matchedEl
+          .querySelectorAll('td.rtn')
+          .map((e) => e.text.trim())
+          .where((e) => e.isNotEmpty)
+          .take(3)
+          .toList(growable: false);
+
+      List<String> special = const [];
+      List<String> consolation = const [];
+      for (final table in matchedEl.querySelectorAll('table.rtb2')) {
+        final header = table
+            .querySelector('td.rpl')
+            ?.text
+            .replaceAll(RegExp(r'\s+'), ' ')
+            .trim();
+        if (header == null || header.isEmpty) continue;
+
+        final nums = table
+            .querySelectorAll('td.rbn')
+            .map((e) => e.text.replaceAll(RegExp(r'\s+'), ' ').trim())
+            .where((e) => e.isNotEmpty)
+            .where((e) => !RegExp(r'^-+$').hasMatch(e))
+            .where((e) => e != '----')
+            .toList(growable: false);
+
+        if (header.toLowerCase() == 'special') {
+          special = nums;
+        } else if (header.toLowerCase() == 'consolation') {
+          consolation = nums;
+        }
+      }
+
+      final drawInfo = matchedEl.querySelector('span.rdd')?.text.trim();
+
+      if (top3.isEmpty) {
+        setState(() {
+          _resultsError = 'Failed to parse results from 4dmoon.';
+          _isLoadingResults = false;
+        });
+        return;
+      }
+
       setState(() {
-        _lotteryResult = result;
+        _lotteryResult = LotteryResult(
+          name: lotteryType.displayName,
+          date: drawInfo ?? matchedTitle,
+          numbers: top3,
+        );
+        _moonDrawInfo = drawInfo;
+        _moonSpecialList = special;
+        _moonConsolationList = consolation;
         _isLoadingResults = false;
         _resultsError = null;
       });
       _syncWidget();
-    } catch (e) {
+    } on TimeoutException {
+      if (!mounted || requestId != _fetchRequestId) return;
       setState(() {
-        _resultsError = 'Failed to parse results.';
+        _resultsError = '4dmoon request timed out.';
+        _isLoadingResults = false;
+      });
+    } catch (e) {
+      if (!mounted || requestId != _fetchRequestId) return;
+      setState(() {
+        _resultsError = 'Failed to fetch results from 4dmoon: $e';
         _isLoadingResults = false;
       });
     }
   }
 
-  LotteryResult _extractLotteryResultFromNewApi(dynamic decoded, LotteryType lotteryType) {
-    try {
-      if (decoded is Map<String, dynamic>) {
-        // Check if it's wrapped in ApiResponse structure
-        if (decoded.containsKey('data') && decoded['data'] is Map) {
-          final data = decoded['data'] as Map<String, dynamic>;
-          return _parseLotteryData(data, lotteryType);
-        }
-
-        // Direct data format
-        return _parseLotteryData(decoded, lotteryType);
-      }
-
-      if (decoded is List && decoded.isNotEmpty) {
-        if (decoded.first is Map<String, dynamic>) {
-          return _parseLotteryData(decoded.first, lotteryType);
-        }
-      }
-    } catch (e) {
-      // Continue to fallback
-    }
-
-    // Return empty result
-    return LotteryResult(
-      name: lotteryType.displayName,
-      date: _selectedDate.toString(),
-      numbers: [],
-    );
+  String _formatYyyyMmDd(DateTime date) {
+    final year = date.year.toString().padLeft(4, '0');
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+    return '$year$month$day';
   }
 
-  LotteryResult _parseLotteryData(Map<String, dynamic> data, LotteryType lotteryType) {
+  Future<bool> _fetchDamacaiResults({
+    required int requestId,
+    required DateTime requestedDate,
+  }) async {
+    final yyyymmdd = _formatYyyyMmDd(requestedDate);
+    final year = requestedDate.year.toString().padLeft(4, '0');
+    final url = Uri.parse(
+      'https://damacai.hongineer.com/results/$year/$yyyymmdd.json',
+    );
+
     try {
-      // Extract numbers
-      List<String> numbers = [];
-      String? bonus;
+      final response = await http
+          .get(
+            url,
+            headers: const {
+              'User-Agent':
+                  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+              'Accept': 'application/json,text/plain,*/*',
+              'Accept-Language': 'en-US,en;q=0.9',
+            },
+          )
+          .timeout(const Duration(seconds: 20));
+      if (!mounted || requestId != _fetchRequestId) return false;
 
-      // Try different number field names
-      if (data.containsKey('numbers')) {
-        final nums = data['numbers'];
-        if (nums is String) {
-          numbers = nums.split(' ').where((n) => n.isNotEmpty).toList();
-        } else if (nums is List) {
-          numbers = List<String>.from(nums);
-        }
+      if (response.statusCode != 200) {
+        setState(() {
+          _resultsError = 'Damacai API error: HTTP ${response.statusCode}';
+          _isLoadingResults = false;
+        });
+        return false;
       }
 
-      if (data.containsKey('result')) {
-        final result = data['result'];
-        if (result is String) {
-          numbers = result.split(' ').where((n) => n.isNotEmpty).toList();
-        } else if (result is List) {
-          numbers = List<String>.from(result);
-        }
-      }
-
-      if (data.containsKey('bonus')) {
-        bonus = data['bonus'].toString();
-      }
-
-      return LotteryResult(
-        name: data['lotteryType']?.toString() ?? lotteryType.displayName,
-        date: data['date']?.toString() ?? _selectedDate.toString(),
-        numbers: numbers,
-        bonus: bonus,
+      final decoded = jsonDecode(
+        utf8.decode(response.bodyBytes, allowMalformed: true),
       );
+      if (decoded is! Map<String, dynamic>) {
+        setState(() {
+          _resultsError = 'Damacai API returned unexpected JSON.';
+          _isLoadingResults = false;
+        });
+        return false;
+      }
+
+      final p1 = decoded['p1']?.toString().trim() ?? '';
+      final p2 = decoded['p2']?.toString().trim() ?? '';
+      final p3 = decoded['p3']?.toString().trim() ?? '';
+
+      final numbers = <String>[p1, p2, p3].where((n) => n.isNotEmpty).toList();
+      if (numbers.isEmpty) {
+        setState(() {
+          _resultsError = 'No prize numbers found in Damacai response.';
+          _isLoadingResults = false;
+        });
+        return false;
+      }
+
+      final drawDate =
+          decoded['drawDate']?.toString() ?? requestedDate.toString();
+
+      final drawNo = decoded['drawNo']?.toString();
+      final drawVenue = decoded['drawVenue']?.toString();
+
+      final starterListRaw = decoded['starterList'];
+      final consolidateListRaw = decoded['consolidateList'];
+
+      final starterList = starterListRaw is List
+          ? starterListRaw.map((e) => e.toString()).toList(growable: false)
+          : const <String>[];
+      final consolationList = consolidateListRaw is List
+          ? consolidateListRaw.map((e) => e.toString()).toList(growable: false)
+          : const <String>[];
+
+      final prizeMoney = <String, String>{};
+      void addMoney(String label, String key) {
+        final value = decoded[key]?.toString().trim();
+        if (value != null && value.isNotEmpty) {
+          prizeMoney[label] = value;
+        }
+      }
+
+      addMoney('1+3D Jackpot 1', '1+3DJackpot1');
+      addMoney('1+3D Jackpot 2', '1+3DJackpot2');
+      addMoney('3D Jackpot', '3DJackpot');
+      addMoney('Damacai Jackpot 1', 'dmcJackpot1');
+      addMoney('Damacai Jackpot 2', 'dmcJackpot2');
+      addMoney('3+3D Bonus (P1)', '3+3DBonusp1');
+      addMoney('3+3D Bonus (P2)', '3+3DBonusp2');
+      addMoney('3+3D Bonus (P3)', '3+3DBonusp3');
+
+      setState(() {
+        _lotteryResult = LotteryResult(
+          name: LotteryType.damacai.displayName,
+          date: drawDate,
+          numbers: numbers,
+        );
+        _damacaiDrawNo = drawNo;
+        _damacaiDrawVenue = drawVenue;
+        _damacaiStarterList = starterList;
+        _damacaiConsolationList = consolationList;
+        _damacaiPrizeMoney = Map.unmodifiable(prizeMoney);
+        _isLoadingResults = false;
+        _resultsError = null;
+      });
+      _syncWidget();
+      return true;
+    } on TimeoutException {
+      if (!mounted || requestId != _fetchRequestId) return false;
+      setState(() {
+        _resultsError = 'Damacai API timed out.';
+        _isLoadingResults = false;
+      });
+      return false;
     } catch (e) {
-      return LotteryResult(
-        name: lotteryType.displayName,
-        date: _selectedDate.toString(),
-        numbers: [],
-      );
+      if (!mounted || requestId != _fetchRequestId) return false;
+      setState(() {
+        _resultsError = 'Failed to fetch Damacai results: $e';
+        _isLoadingResults = false;
+      });
+      return false;
     }
   }
 
@@ -308,7 +485,9 @@ class _MyHomePageState extends State<MyHomePage> {
   Future<void> _syncWidget() async {
     final selected = _lotteryTypes[_selectedLottery];
     final numberStr = _lotteryResult?.numbers.join(' ') ?? '';
-    final bonusStr = _lotteryResult?.bonus != null ? '| Bonus ${_lotteryResult!.bonus}' : '';
+    final bonusStr = _lotteryResult?.bonus != null
+        ? '| Bonus ${_lotteryResult!.bonus}'
+        : '';
     final combinedNumbers = '$numberStr $bonusStr';
     await WidgetDataService.saveAndUpdate(
       WidgetResult(
@@ -318,8 +497,6 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
     );
   }
-
-
 
   String _formatDate(DateTime date) {
     const weekdays = <String>[
@@ -350,6 +527,7 @@ class _MyHomePageState extends State<MyHomePage> {
     final day = date.day.toString().padLeft(2, '0');
     return '$weekday, $day $month ${date.year}';
   }
+
   @override
   Widget build(BuildContext context) {
     final selectedLottery = _lotteryTypes[_selectedLottery];
@@ -361,43 +539,28 @@ class _MyHomePageState extends State<MyHomePage> {
         centerTitle: true,
       ),
       body: SafeArea(
-        child: Stack(
+        child: IndexedStack(
+          index: _selectedTab,
           children: [
-            IndexedStack(
-              index: _selectedTab,
-              children: [
-                SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildDateBanner(),
-                      const SizedBox(height: 16),
-                      _buildLotteryToggles(),
-                      const SizedBox(height: 16),
-                      _buildResultsCard(selectedLottery),
-                      const SizedBox(height: 16),
-                      _buildInfoCards(),
-                    ],
-                  ),
-                ),
-                const HistoryPage(),
-                const SettingsPage(),
-              ],
-            ),
-            if (_isWindowsDesktop && _headlessWebViewController != null && _headlessWebViewController!.value.isInitialized)
-              Positioned(
-                left: -1000,
-                top: -1000,
-                width: 1,
-                height: 1,
-                child: wvwin.Webview(
-                  _headlessWebViewController!,
-                  width: 1,
-                  height: 1,
-                  filterQuality: FilterQuality.none,
-                ),
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _buildDateBanner(),
+                  const SizedBox(height: 16),
+                  _buildRegionTabs(),
+                  const SizedBox(height: 16),
+                  _buildLotteryToggles(),
+                  const SizedBox(height: 16),
+                  _buildResultsCard(selectedLottery),
+                  const SizedBox(height: 16),
+                  _buildInfoCards(),
+                ],
               ),
+            ),
+            const HistoryPage(),
+            const SettingsPage(),
           ],
         ),
       ),
@@ -425,6 +588,7 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
     );
   }
+
   String _tabTitle(int index) {
     switch (index) {
       case 1:
@@ -434,7 +598,9 @@ class _MyHomePageState extends State<MyHomePage> {
       default:
         return widget.title;
     }
-  }  Widget _buildDateBanner() {
+  }
+
+  Widget _buildDateBanner() {
     return GestureDetector(
       onTap: _selectDate,
       child: Container(
@@ -463,7 +629,10 @@ class _MyHomePageState extends State<MyHomePage> {
                 color: Colors.white.withValues(alpha: 0.18),
                 borderRadius: BorderRadius.circular(18),
               ),
-              child: const Icon(Icons.calendar_today_rounded, color: Colors.white),
+              child: const Icon(
+                Icons.calendar_today_rounded,
+                color: Colors.white,
+              ),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -471,7 +640,9 @@ class _MyHomePageState extends State<MyHomePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    _selectedDate.difference(DateTime.now()).inDays == 0 ? 'Today' : 'Selected Date',
+                    _selectedDate.difference(DateTime.now()).inDays == 0
+                        ? 'Today'
+                        : 'Selected Date',
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 14,
@@ -518,40 +689,60 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
+  Widget _buildRegionTabs() {
+    return Row(
+      children: [
+        Expanded(
+          child: SegmentedButton<int>(
+            segments: const [
+              ButtonSegment<int>(value: 0, label: Text('West')),
+              ButtonSegment<int>(value: 1, label: Text('East')),
+              ButtonSegment<int>(value: 2, label: Text('Singapore')),
+            ],
+            selected: <int>{_selectedRegionTab},
+            onSelectionChanged: (values) {
+              final next = values.isEmpty ? 0 : values.first;
+              _selectRegionTab(next);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildLotteryToggles() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           'Choose lottery',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 12),
         SingleChildScrollView(
           scrollDirection: Axis.horizontal,
           child: Row(
-            children: List<Widget>.generate(
-              _lotteryTypes.length,
-              (index) {
-                final isSelected = index == _selectedLottery;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: FilterChip(
-                    selected: isSelected,
-                    onSelected: (_) => _selectLottery(index),
-                    label: Text(_lotteryTypes[index].displayName),
-                    backgroundColor: Colors.white,
-                    selectedColor: Theme.of(context).colorScheme.primary,
-                    labelStyle: TextStyle(
-                      color: isSelected ? Colors.white : Theme.of(context).colorScheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
+            children: List<Widget>.generate(_lotteryTypes.length, (index) {
+              final isSelected = index == _selectedLottery;
+              return Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: FilterChip(
+                  selected: isSelected,
+                  onSelected: (_) => _selectLottery(index),
+                  label: Text(_lotteryTypes[index].displayName),
+                  backgroundColor: Colors.white,
+                  selectedColor: Theme.of(context).colorScheme.primary,
+                  labelStyle: TextStyle(
+                    color: isSelected
+                        ? Colors.white
+                        : Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w600,
                   ),
-                );
-              },
-            ),
+                ),
+              );
+            }),
           ),
         ),
       ],
@@ -559,6 +750,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   Widget _buildResultsCard(LotteryType selectedLottery) {
+    final isDamacai = selectedLottery == LotteryType.damacai;
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -585,31 +777,66 @@ class _MyHomePageState extends State<MyHomePage> {
                     selectedLottery.displayName,
                     key: const Key('selected-lottery-name'),
                     style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     _formatDate(_selectedDate),
                     key: const Key('selected-lottery-subtitle'),
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.black54,
-                        ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(color: Colors.black54),
                   ),
+                  if (!isDamacai &&
+                      _moonDrawInfo != null &&
+                      _moonDrawInfo!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      _moonDrawInfo!.trim(),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.black54,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                  if (isDamacai &&
+                      (_damacaiDrawNo != null ||
+                          _damacaiDrawVenue != null)) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      [
+                        if (_damacaiDrawNo != null &&
+                            _damacaiDrawNo!.trim().isNotEmpty)
+                          'Draw ${_damacaiDrawNo!.trim()}',
+                        if (_damacaiDrawVenue != null &&
+                            _damacaiDrawVenue!.trim().isNotEmpty)
+                          _damacaiDrawVenue!.trim(),
+                      ].join(' • '),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Colors.black54,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ],
               ),
               if (!_isLoadingResults)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   decoration: BoxDecoration(
-                    color: Theme.of(context)
-                        .colorScheme
-                        .primary
-                        .withValues(alpha: 0.1),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    _lotteryResult?.numbers.isNotEmpty ?? false ? 'Results' : 'No data',
+                    _lotteryResult?.numbers.isNotEmpty ?? false
+                        ? 'Results'
+                        : 'No data',
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.primary,
                       fontWeight: FontWeight.w700,
@@ -650,12 +877,151 @@ class _MyHomePageState extends State<MyHomePage> {
                   spacing: 12,
                   runSpacing: 12,
                   children: [
-                    for (final number in _lotteryResult!.numbers)
-                      _buildNumberBall(number, filled: true),
+                    if (_lotteryResult!.numbers.isNotEmpty)
+                      _buildNumberBall(
+                        _lotteryResult!.numbers[0],
+                        filled: true,
+                        label: '1st',
+                      ),
+                    if (_lotteryResult!.numbers.length > 1)
+                      _buildNumberBall(
+                        _lotteryResult!.numbers[1],
+                        filled: true,
+                        label: '2nd',
+                      ),
+                    if (_lotteryResult!.numbers.length > 2)
+                      _buildNumberBall(
+                        _lotteryResult!.numbers[2],
+                        filled: true,
+                        label: '3rd',
+                      ),
                     if (_lotteryResult?.bonus != null)
                       _buildNumberBall(_lotteryResult!.bonus!, label: 'Bonus'),
                   ],
                 ),
+                if (!isDamacai && _moonSpecialList.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    'Special prizes',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      for (final n in _moonSpecialList) _buildNumberPill(n),
+                    ],
+                  ),
+                ],
+                if (!isDamacai && _moonConsolationList.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    'Consolation prizes',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      for (final n in _moonConsolationList) _buildNumberPill(n),
+                    ],
+                  ),
+                ],
+                if (isDamacai && _damacaiPrizeMoney.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    'Prize money',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF6F7FF),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: Column(
+                      children: _damacaiPrizeMoney.entries
+                          .map((e) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      e.key,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Text(
+                                    'RM ${e.value}',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodyMedium
+                                        ?.copyWith(
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.primary,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          })
+                          .toList(growable: false),
+                    ),
+                  ),
+                ],
+                if (isDamacai && _damacaiStarterList.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    'Starter prizes',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      for (final n in _damacaiStarterList) _buildNumberPill(n),
+                    ],
+                  ),
+                ],
+                if (isDamacai && _damacaiConsolationList.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  Text(
+                    'Consolation prizes',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      for (final n in _damacaiConsolationList)
+                        _buildNumberPill(n),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 20),
                 Container(
                   padding: const EdgeInsets.all(14),
@@ -665,12 +1031,16 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.check_circle_outline_rounded,
-                          color: Theme.of(context).colorScheme.primary),
+                      Icon(
+                        Icons.check_circle_outline_rounded,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
                       const SizedBox(width: 10),
-                      const Expanded(
+                      Expanded(
                         child: Text(
-                          'Winning numbers fetched from API for selected date and lottery type.',
+                          isDamacai
+                              ? 'Damacai results fetched from REST API.'
+                              : 'Results fetched from 4dmoon.',
                         ),
                       ),
                     ],
@@ -679,6 +1049,33 @@ class _MyHomePageState extends State<MyHomePage> {
               ],
             ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildNumberPill(String value) {
+    final color = Theme.of(context).colorScheme.primary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Text(
+        value,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.2,
+        ),
       ),
     );
   }
@@ -719,9 +1116,9 @@ class _MyHomePageState extends State<MyHomePage> {
           Text(
             label,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Colors.black54,
-                  fontWeight: FontWeight.w600,
-                ),
+              color: Colors.black54,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ],
@@ -750,7 +1147,6 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 }
-
 
 class _InfoCard extends StatelessWidget {
   const _InfoCard({
@@ -783,10 +1179,9 @@ class _InfoCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Theme.of(context)
-                  .colorScheme
-                  .primary
-                  .withValues(alpha: 0.1),
+              color: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
             ),
             child: Icon(icon, color: Theme.of(context).colorScheme.primary),
@@ -799,16 +1194,16 @@ class _InfoCard extends StatelessWidget {
                 Text(
                   title,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.black54,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    color: Colors.black54,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   value,
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ],
             ),
@@ -818,5 +1213,3 @@ class _InfoCard extends StatelessWidget {
     );
   }
 }
-
-

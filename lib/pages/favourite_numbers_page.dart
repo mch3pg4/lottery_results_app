@@ -8,21 +8,23 @@ class FavouriteNumbersPage extends StatefulWidget {
 }
 
 class _FavouriteNumbersPageState extends State<FavouriteNumbersPage> {
-  List<String> _favoriteNumbers = ['07', '13', '21', '42'];
+  final List<String> _favoriteNumbers = ['07', '13', '21', '42'];
   final _numberController = TextEditingController();
 
   void _addNumber() {
     final number = _numberController.text.trim();
     if (number.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter a number')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter a number')));
       return;
     }
 
     if (_favoriteNumbers.contains(number)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This number is already in your favorites')),
+        const SnackBar(
+          content: Text('This number is already in your favorites'),
+        ),
       );
       return;
     }
@@ -37,9 +39,9 @@ class _FavouriteNumbersPageState extends State<FavouriteNumbersPage> {
     setState(() {
       _favoriteNumbers.remove(number);
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$number removed from favorites')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$number removed from favorites')));
   }
 
   @override
@@ -64,9 +66,9 @@ class _FavouriteNumbersPageState extends State<FavouriteNumbersPage> {
             const SizedBox(height: 8),
             Text(
               'Your Lucky Numbers',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             TextField(
@@ -76,7 +78,9 @@ class _FavouriteNumbersPageState extends State<FavouriteNumbersPage> {
                 labelText: 'Add a number (1-49)',
                 hintText: 'Enter number',
                 prefixIcon: const Icon(Icons.format_list_numbered_rounded),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -108,10 +112,9 @@ class _FavouriteNumbersPageState extends State<FavouriteNumbersPage> {
                       Container(
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .primary
-                              .withValues(alpha: 0.1),
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.primary.withValues(alpha: 0.1),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
@@ -123,9 +126,8 @@ class _FavouriteNumbersPageState extends State<FavouriteNumbersPage> {
                       const SizedBox(height: 16),
                       Text(
                         'No favorite numbers yet',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
                       const Text(
@@ -144,8 +146,8 @@ class _FavouriteNumbersPageState extends State<FavouriteNumbersPage> {
                   Text(
                     'Your Numbers (${_favoriteNumbers.length})',
                     style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   Wrap(
@@ -167,8 +169,10 @@ class _FavouriteNumbersPageState extends State<FavouriteNumbersPage> {
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.lightbulb_outline_rounded,
-                            color: Colors.amber[700]),
+                        Icon(
+                          Icons.lightbulb_outline_rounded,
+                          color: Colors.amber[700],
+                        ),
                         const SizedBox(width: 12),
                         const Expanded(
                           child: Text(
@@ -204,4 +208,3 @@ class _FavouriteNumbersPageState extends State<FavouriteNumbersPage> {
     );
   }
 }
-
