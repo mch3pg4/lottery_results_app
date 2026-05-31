@@ -8,7 +8,7 @@ class AboutAppPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.white,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
         title: const Text('About App'),
       ),
       body: SingleChildScrollView(
@@ -21,7 +21,9 @@ class AboutAppPage extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.all(20),
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.primary.withValues(alpha: 0.1),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(
@@ -39,56 +41,73 @@ class AboutAppPage extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            const Center(
+            Center(
               child: Text(
                 'Version 1.0.0',
-                style: TextStyle(fontSize: 16, color: Colors.black54),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  fontSize: 16,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
             const SizedBox(height: 32),
             _buildInfoCard(
+              context,
               title: 'About',
               content:
                   'Lottery Results is a comprehensive app for tracking lottery draws, checking results, and managing your favorite numbers all in one place.',
             ),
             const SizedBox(height: 16),
             _buildInfoCard(
+              context,
               title: 'Features',
               content:
                   '• Real-time lottery results\n• Multiple lottery types\n• Save favorite numbers\n• Draw history\n• Customizable notifications',
             ),
             const SizedBox(height: 16),
             _buildInfoCard(
+              context,
               title: 'Developer',
               content: 'Developed with ❤️ using Flutter',
             ),
             const SizedBox(height: 24),
             Text(
               'Contact & Support',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            _buildSupportTile('Email', 'support@lotteryapp.com', Icons.email_outlined),
+            _buildSupportTile(
+              context,
+              'Email',
+              'support@lotteryapp.com',
+              Icons.email_outlined,
+            ),
             const SizedBox(height: 8),
-            _buildSupportTile('Website', 'www.lotteryapp.com', Icons.language),
+            _buildSupportTile(
+              context,
+              'Website',
+              'www.lotteryapp.com',
+              Icons.language,
+            ),
             const SizedBox(height: 8),
-            _buildSupportTile('Twitter', '@LotteryApp', Icons.share),
+            _buildSupportTile(context, 'Twitter', '@LotteryApp', Icons.share),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildInfoCard({
+  Widget _buildInfoCard(
+    BuildContext context, {
     required String title,
     required String content,
   }) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
@@ -108,39 +127,50 @@ class AboutAppPage extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             content,
-            style: const TextStyle(color: Colors.black87, height: 1.6),
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurface,
+              height: 1.6,
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSupportTile(String label, String value, IconData icon) {
+  Widget _buildSupportTile(
+    BuildContext context,
+    String label,
+    String value,
+    IconData icon,
+  ) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).colorScheme.surface,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.withValues(alpha: 0.2)),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
       ),
       child: Row(
         children: [
-          Icon(icon, color: Colors.blue),
+          Icon(icon, color: Theme.of(context).colorScheme.primary),
           const SizedBox(width: 12),
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 label,
-                style: const TextStyle(
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   fontSize: 12,
-                  color: Colors.black54,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               Text(
                 value,
-                style: const TextStyle(fontWeight: FontWeight.w500),
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurface,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
             ],
           ),
@@ -149,4 +179,3 @@ class AboutAppPage extends StatelessWidget {
     );
   }
 }
-

@@ -26,7 +26,7 @@ class _FeedbackPageState extends State<FeedbackPage> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Theme.of(context).colorScheme.primary,
-        foregroundColor: Colors.white,
+        foregroundColor: Theme.of(context).colorScheme.onPrimary,
         title: const Text('Submit Feedback'),
       ),
       body: SingleChildScrollView(
@@ -37,30 +37,33 @@ class _FeedbackPageState extends State<FeedbackPage> {
             const SizedBox(height: 16),
             Text(
               'We\'d love to hear from you!',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Your feedback helps us improve the app. Please let us know your thoughts, suggestions, or report any issues.',
-              style: TextStyle(color: Colors.black54),
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 24),
-            Text(
-              'Category',
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
+            Text('Category', style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.withValues(alpha: 0.3)),
+                color: Theme.of(context).colorScheme.surface,
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: DropdownButton<String>(
                 value: _selectedCategory,
                 isExpanded: true,
+                dropdownColor: Theme.of(context).colorScheme.surface,
                 underline: const SizedBox(),
                 items: categories.map((String value) {
                   return DropdownMenuItem<String>(
@@ -76,16 +79,15 @@ class _FeedbackPageState extends State<FeedbackPage> {
               ),
             ),
             const SizedBox(height: 20),
-            Text(
-              'Subject',
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
+            Text('Subject', style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: 8),
             TextField(
               controller: _subjectController,
               decoration: InputDecoration(
                 hintText: 'What is your feedback about?',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -96,17 +98,16 @@ class _FeedbackPageState extends State<FeedbackPage> {
               ),
             ),
             const SizedBox(height: 20),
-            Text(
-              'Message',
-              style: Theme.of(context).textTheme.labelLarge,
-            ),
+            Text('Message', style: Theme.of(context).textTheme.labelLarge),
             const SizedBox(height: 8),
             TextField(
               controller: _messageController,
               maxLines: 6,
               decoration: InputDecoration(
                 hintText: 'Please provide detailed feedback...',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                   borderSide: BorderSide(
@@ -120,11 +121,14 @@ class _FeedbackPageState extends State<FeedbackPage> {
             ElevatedButton(
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).colorScheme.primary,
-                foregroundColor: Colors.white,
+                foregroundColor: Theme.of(context).colorScheme.onPrimary,
                 padding: const EdgeInsets.symmetric(vertical: 14),
               ),
               onPressed: _submitFeedback,
-              child: const Text('Submit Feedback', style: TextStyle(fontSize: 16)),
+              child: const Text(
+                'Submit Feedback',
+                style: TextStyle(fontSize: 16),
+              ),
             ),
           ],
         ),
@@ -141,7 +145,9 @@ class _FeedbackPageState extends State<FeedbackPage> {
     }
 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Thank you! Your feedback has been submitted.')),
+      const SnackBar(
+        content: Text('Thank you! Your feedback has been submitted.'),
+      ),
     );
 
     _subjectController.clear();
@@ -151,4 +157,3 @@ class _FeedbackPageState extends State<FeedbackPage> {
     });
   }
 }
-

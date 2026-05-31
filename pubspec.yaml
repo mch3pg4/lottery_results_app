@@ -38,6 +38,8 @@ dependencies:
   html: ^0.15.6
   flutter_dotenv: ^6.0.1
   webview_windows: ^0.4.0
+  supabase_flutter: ^2.12.4
+  shared_preferences: ^2.2.3
 
 dev_dependencies:
   flutter_test:
